@@ -1,7 +1,7 @@
 import logging
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import Application, CommandHandler, MessageHandler, CallbackQueryHandler, filters, ContextTypes
-from config import BOT_TOKEN, ADMIN_ID, BINGX_REFERRAL_LINK, BotStates, MESSAGES
+from config import BOT_TOKEN, ADMIN_IDS, BINGX_REFERRAL_LINK, BotStates, MESSAGES
 from database import UserDatabase
 
 # Set up logging
@@ -232,8 +232,8 @@ async def handle_deposit_response(update: Update, context: ContextTypes.DEFAULT_
 
 async def notify_admin(update: Update, context: ContextTypes.DEFAULT_TYPE, user_id: int):
     """Notify admin about new user waiting for verification"""
-    if ADMIN_ID == 0:
-        logger.warning("Admin ID not set, skipping admin notification")
+    if not ADMIN_IDS:
+        logger.warning("Admin IDs not set, skipping admin notification")
         return
     
     user_data = db.get_user(user_id)
@@ -255,22 +255,27 @@ async def notify_admin(update: Update, context: ContextTypes.DEFAULT_TYPE, user_
     ]
     reply_markup = InlineKeyboardMarkup(keyboard)
     
-    try:
-        await context.bot.send_message(
-            chat_id=ADMIN_ID,
-            text=notification_text,
-            reply_markup=reply_markup
-        )
-    except Exception as e:
-        logger.error(f"Failed to notify admin: {e}")
+    # Send notification to all admins
+    for admin_id in ADMIN_IDS:
+        try:
+            await context.bot.send_message(
+                chat_id=admin_id,
+                text=notification_text,
+                reply_markup=reply_markup
+            )
+        except Exception as e:
+            logger.error(f"Failed to notify admin {admin_id}: {e}")
 
 async def handle_admin_action(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Handle admin approval/rejection"""
     query = update.callback_query
     await query.answer()
     
-    if query.from_user.id != ADMIN_ID:
-        await query.edit_message_text("❌ You are not authorized to perform this action.")
+    if query.from_user.id not in ADMIN_IDS:
+        await context.bot.send_message(
+            chat_id=query.from_user.id,
+            text="❌ You are not authorized to perform this action."
+        )
         return
     
     action, user_id = query.data.split("_", 1)
@@ -315,11 +320,15 @@ async def handle_text_message(update: Update, context: ContextTypes.DEFAULT_TYPE
     if current_state == BotStates.SUPPORT:
         issue_text = update.message.text.strip()
         telegram_username = update.effective_user.username or "(no username)"
-        if ADMIN_ID:
-            await context.bot.send_message(
-                chat_id=ADMIN_ID,
-                text=f"Support request from @{telegram_username} (ID: {user_id}):\n{issue_text}"
-            )
+        if ADMIN_IDS:
+            for admin_id in ADMIN_IDS:
+                try:
+                    await context.bot.send_message(
+                        chat_id=admin_id,
+                        text=f"Support request from @{telegram_username} (ID: {user_id}):\n{issue_text}"
+                    )
+                except Exception as e:
+                    logger.error(f"Failed to send support request to admin {admin_id}: {e}")
         await update.message.reply_text("Your issue has been forwarded to the admin. Thank you!")
         db.set_user_state(user_id, "COMPLETED")
         return
@@ -330,11 +339,15 @@ async def handle_text_message(update: Update, context: ContextTypes.DEFAULT_TYPE
         telegram_username = update.effective_user.username or "(no username)"
         combined_info = f"UID: {submitted_uid}\nTelegram: @{telegram_username}"
         db.update_user(user_id, uid_submission=combined_info)
-        if ADMIN_ID:
-            await context.bot.send_message(
-                chat_id=ADMIN_ID,
-                text=f"New user submitted UID and Telegram username:\n{combined_info}\nUser ID: {user_id}"
-            )
+        if ADMIN_IDS:
+            for admin_id in ADMIN_IDS:
+                try:
+                    await context.bot.send_message(
+                        chat_id=admin_id,
+                        text=f"New user submitted UID and Telegram username:\n{combined_info}\nUser ID: {user_id}"
+                    )
+                except Exception as e:
+                    logger.error(f"Failed to send UID submission to admin {admin_id}: {e}")
         await context.bot.send_message(
             chat_id=user_id,
             text="✅ Info received! You will be added to the group."

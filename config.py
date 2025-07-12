@@ -6,8 +6,12 @@ load_dotenv()
 
 # Bot configuration
 BOT_TOKEN = os.getenv('TELEGRAM_BOT_TOKEN')
-ADMIN_ID = int(os.getenv('ADMIN_TELEGRAM_ID', 0))
+# ADMIN_ID should be a list of admin Telegram IDs, not a single ID
+# Get your ID by messaging @userinfobot on Telegram
+ADMIN_IDS = [int(id.strip()) for id in os.getenv('ADMIN_TELEGRAM_IDS', '').split(',') if id.strip()]
 BINGX_REFERRAL_LINK = os.getenv('BINGX_REFERRAL_LINK', 'https://bingx.com/your-referral-link')
+
+print(ADMIN_IDS)
 
 # Bot states
 class BotStates:

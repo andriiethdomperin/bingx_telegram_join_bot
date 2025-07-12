@@ -31,7 +31,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.callback_query.message.reply_text(welcome_text)
 
     # Ask KYC question
-    await ask_kyc_question(update, context)
+    await ask_referral_registration(update, context)
 
 async def ask_kyc_question(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Ask if user has KYC-verified account"""
@@ -153,94 +153,82 @@ async def handle_kyc_transfer_response(update: Update, context: ContextTypes.DEF
 
 
 async def ask_kyc_completion(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Ask if user has completed KYC verification"""
+    """Step 4: Ask if user completed KYC, loop until Yes, then proceed to deposit question"""
     keyboard = [
         [
-            InlineKeyboardButton("Yes, I completed KYC", callback_data="kyc_complete_yes"),
-            InlineKeyboardButton("No, I haven't completed KYC yet", callback_data="kyc_complete_no")
+            InlineKeyboardButton("✅ Yes", callback_data="kyc_complete_yes"),
+            InlineKeyboardButton("❌ No", callback_data="kyc_complete_no")
         ]
     ]
     reply_markup = InlineKeyboardMarkup(keyboard)
-    
     await context.bot.send_message(
         chat_id=update.effective_user.id,
-        text=MESSAGES['kyc_completion_question'],
+        text="Did you complete KYC?",
         reply_markup=reply_markup
     )
 
 async def handle_kyc_completion_response(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Handle KYC completion response"""
+    """Handle Step 4: KYC completion response, loop until Yes, then proceed to deposit question"""
     query = update.callback_query
     await query.answer()
-    
     user_id = query.from_user.id
     response = query.data
-    
+
     if response == "kyc_complete_yes":
         db.set_user_state(user_id, BotStates.KYC_COMPLETION)
         await context.bot.send_message(
             chat_id=user_id,
-            text=MESSAGES['kyc_completion_yes']
+            text="Great! Now let's check your deposit status."
         )
         await ask_deposit_question(update, context)
-
     elif response == "kyc_complete_no":
         db.set_user_state(user_id, BotStates.KYC_NO)
         await context.bot.send_message(
             chat_id=user_id,
-            text=MESSAGES['kyc_completion_no']
+            text="Please complete your KYC verification first, then let me know when you're ready!"
         )
+        # Loop: ask again
+        await ask_kyc_completion(update, context)
 
 async def ask_deposit_question(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Ask if user has made a deposit"""
+    """Step 5: Ask if user made a deposit, loop until Yes, then proceed to UID/username submission"""
     keyboard = [
         [
-            InlineKeyboardButton("Yes, I made a deposit", callback_data="deposit_yes"),
-            InlineKeyboardButton("No, I haven't deposited yet", callback_data="deposit_no")
-        ],
-        [
-            InlineKeyboardButton("⬅️ Back to KYC transfer", callback_data="back_to_kyc_transfer")
+            InlineKeyboardButton("✅ Yes", callback_data="deposit_yes"),
+            InlineKeyboardButton("❌ No", callback_data="deposit_no")
         ]
     ]
     reply_markup = InlineKeyboardMarkup(keyboard)
-    
     await context.bot.send_message(
         chat_id=update.effective_user.id,
-        text=MESSAGES['deposit_question'],
+        text="Did you make a deposit?",
         reply_markup=reply_markup
     )
 
 async def handle_deposit_response(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Handle deposit response"""
+    """Handle Step 5: Deposit response, loop until Yes, then proceed to UID/username submission"""
     query = update.callback_query
     await query.answer()
-    
     user_id = query.from_user.id
     response = query.data
-    
+
     if response == "deposit_yes":
         db.set_deposit_status(user_id, True)
-        db.set_user_state(user_id, BotStates.WAITING_FOR_ADMIN)
+        db.set_user_state(user_id, BotStates.DEPOSIT_YES)
         await context.bot.send_message(
             chat_id=user_id,
-            text=MESSAGES['deposit_yes']
+            text="Great! Please submit your BingX UID and your Telegram username (Step 6)."
         )
-        await notify_admin(update, context, user_id)
-
+        await ask_uid_submission(update, context)
     elif response == "deposit_no":
         db.set_deposit_status(user_id, False)
         db.set_user_state(user_id, BotStates.DEPOSIT_NO)
-        keyboard = [
-            [
-                InlineKeyboardButton("⬅️ Back", callback_data="back_to_kyc_transfer")
-            ]
-        ]
-        reply_markup = InlineKeyboardMarkup(keyboard)
         await context.bot.send_message(
             chat_id=user_id,
-            text=MESSAGES['deposit_no'],
-            reply_markup=reply_markup
+            text="Please make a deposit first, then let me know when you're ready!"
         )
+        # Loop: ask again
+        await ask_deposit_question(update, context)
 
 async def notify_admin(update: Update, context: ContextTypes.DEFAULT_TYPE, user_id: int):
     """Notify admin about new user waiting for verification"""
@@ -310,19 +298,57 @@ async def handle_admin_action(update: Update, context: ContextTypes.DEFAULT_TYPE
             text="❌ User rejected."
         )
 
+async def ask_uid_submission(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Step 6: Ask user to submit UID and Telegram username"""
+    await context.bot.send_message(
+        chat_id=update.effective_user.id,
+        text="Please reply with your BingX UID. Your Telegram username will be sent automatically."
+    )
+
 async def handle_text_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Handle text messages"""
+    """Handle text messages: collect UID, support requests, or restart flow."""
     user_id = update.effective_user.id
     user_data = db.get_user(user_id)
     current_state = user_data.get('state', BotStates.GREETING)
-    
+
+    # 1. Handle support requests
+    if current_state == BotStates.SUPPORT:
+        issue_text = update.message.text.strip()
+        telegram_username = update.effective_user.username or "(no username)"
+        if ADMIN_ID:
+            await context.bot.send_message(
+                chat_id=ADMIN_ID,
+                text=f"Support request from @{telegram_username} (ID: {user_id}):\n{issue_text}"
+            )
+        await update.message.reply_text("Your issue has been forwarded to the admin. Thank you!")
+        db.set_user_state(user_id, "COMPLETED")
+        return
+
+    # 2. Handle UID submission after deposit
+    if current_state == BotStates.DEPOSIT_YES:
+        submitted_uid = update.message.text.strip()
+        telegram_username = update.effective_user.username or "(no username)"
+        combined_info = f"UID: {submitted_uid}\nTelegram: @{telegram_username}"
+        db.update_user(user_id, uid_submission=combined_info)
+        if ADMIN_ID:
+            await context.bot.send_message(
+                chat_id=ADMIN_ID,
+                text=f"New user submitted UID and Telegram username:\n{combined_info}\nUser ID: {user_id}"
+            )
+        await context.bot.send_message(
+            chat_id=user_id,
+            text="✅ Info received! You will be added to the group."
+        )
+        db.set_user_state(user_id, "COMPLETED")
+        return
+
+    # 3. If user is expected to complete KYC and then confirm
     if current_state == BotStates.KYC_NO:
-        # User is expected to complete KYC and then confirm
         db.set_user_state(user_id, BotStates.KYC_QUESTION)  # Prevents repeated triggers
         await ask_kyc_completion(update, context)
         return
-    
-    # If user sends any text, restart the conversation
+
+    # 4. For any other text, restart the conversation
     if current_state != BotStates.WAITING_FOR_ADMIN:
         await start(update, context)
 
@@ -352,6 +378,76 @@ async def handle_back_button(update: Update, context: ContextTypes.DEFAULT_TYPE)
         await ask_kyc_question(update, context)
     # Add more as needed for other steps
 
+async def ask_referral_registration(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Step 2: Ask if user registered with the referral link"""
+    keyboard = [
+        [
+            InlineKeyboardButton("✅ Yes", callback_data="referral_yes"),
+            InlineKeyboardButton("❌ No", callback_data="referral_no")
+        ],
+        [
+            InlineKeyboardButton("🟡 I already have a BingX account", callback_data="referral_existing")
+        ]
+    ]
+    reply_markup = InlineKeyboardMarkup(keyboard)
+    await context.bot.send_message(
+        chat_id=update.effective_user.id,
+        text="Did you register with the referral link?",
+        reply_markup=reply_markup
+    )
+
+async def handle_referral_registration(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Handle Step 2 options and branch accordingly"""
+    query = update.callback_query
+    await query.answer()
+    user_id = query.from_user.id
+    response = query.data
+
+    if response == "referral_yes":
+        # Go to Step 4 (KYC completion)
+        await ask_kyc_completion(update, context)
+    elif response == "referral_no":
+        # Send referral link again, then repeat Step 2
+        welcome_text = MESSAGES['welcome'].format(BINGX_REFERRAL_LINK=BINGX_REFERRAL_LINK)
+        await context.bot.send_message(chat_id=user_id, text=welcome_text)
+        await ask_referral_registration(update, context)
+    elif response == "referral_existing":
+        # Go to Step 3 (KYC transfer help)
+        await show_kyc_transfer_help(update, context)
+
+async def show_kyc_transfer_help(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Step 3: Show KYC transfer help and then proceed to KYC completion question"""
+    help_text = (
+        "To transfer your KYC:\n"
+        "1. Your old account must not have had any trading activity in the last 7 days\n"
+        "2. Your old account must have advanced KYC\n"
+        "3. Log into your old account and transfer your KYC to the newly created account as shown in the image"
+    )
+    await context.bot.send_message(
+        chat_id=update.effective_user.id,
+        text=help_text
+    )
+    # Optionally, send screenshots here using send_photo
+    await context.bot.send_photo(chat_id=update.effective_user.id, photo=open('img/verify_1.png', 'rb'))
+    await context.bot.send_photo(chat_id=update.effective_user.id, photo=open('img/verify_2.png', 'rb'))
+    # Proceed to Step 4 (ask KYC completion)
+    await ask_kyc_completion(update, context)
+    
+async def support_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = update.effective_user.id
+    db.set_user_state(user_id, BotStates.SUPPORT)
+    await update.message.reply_text(
+        "Please describe your issue or question. Our admin will contact you soon."
+    )
+    
+async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    help_text = (
+        "/start - Start the bot\n"
+        "/support - Contact admin for help\n"
+        # Add more commands as needed
+    )
+    await update.message.reply_text(help_text)
+
 def main():
     """Start the bot"""
     if not BOT_TOKEN:
@@ -364,12 +460,15 @@ def main():
     # Add handlers
     application.add_handler(CommandHandler("start", start))
     application.add_handler(CallbackQueryHandler(handle_kyc_transfer_response, pattern="^kyc_transfer_"))
-    application.add_handler(CallbackQueryHandler(handle_kyc_response, pattern="^kyc_"))
     application.add_handler(CallbackQueryHandler(handle_kyc_completion_response, pattern="^kyc_complete_"))
+    application.add_handler(CallbackQueryHandler(handle_kyc_response, pattern="^kyc_"))
     application.add_handler(CallbackQueryHandler(handle_deposit_response, pattern="^deposit_"))
     application.add_handler(CallbackQueryHandler(handle_admin_action, pattern="^(approve|reject)_"))
     application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_text_message))
     application.add_handler(CallbackQueryHandler(handle_back_button, pattern="^back_to_"))
+    application.add_handler(CallbackQueryHandler(handle_referral_registration, pattern="^referral_"))
+    application.add_handler(CommandHandler("support", support_command))
+    application.add_handler(CommandHandler("help", help_command))
     
     # Add error handler
     application.add_error_handler(error_handler)

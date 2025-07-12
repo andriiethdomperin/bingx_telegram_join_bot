@@ -24,7 +24,7 @@ class BotStates:
 
 # Messages
 MESSAGES = {
-    'welcome': "Hello, welcome! 👋\n\nTo join the group, register on BingX using this link:\n{BINGX_REFERRAL_LINK}",
+    'welcome': "Hello, welcome! 👋\n\nJoining this group is completely free, and all trades must be done on the BingX account you open.\n\nTo join the group, register on BingX using this link:\n{BINGX_REFERRAL_LINK}",
     'kyc_question': "Do you already have a KYC-verified BingX account?",
     'kyc_yes': "Great! To transfer your KYC to our referral, please follow these steps:\n\n1. Log into your BingX account\n2. Go to Settings > Referral\n3. Enter our referral code: YOUR_REFERRAL_CODE\n4. Complete the transfer process\n\nLet me know when you've completed this step!",
     'kyc_no': "No problem! Please register through the link I provided above and complete your KYC verification.",

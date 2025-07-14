@@ -307,8 +307,12 @@ async def ask_uid_submission(update: Update, context: ContextTypes.DEFAULT_TYPE)
     """Step 6: Ask user to submit UID and Telegram username"""
     await context.bot.send_message(
         chat_id=update.effective_user.id,
-        text="Please reply with your BingX UID. Your Telegram username will be sent automatically."
-    )
+        text=(
+            "Please reply with your BingX UID.\n"
+            "⚠️ To make group management easier, please set a Telegram username in your Telegram settings "
+            "if you haven't already."
+        )
+)
 
 async def handle_text_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Handle text messages: collect UID, support requests, or restart flow."""
@@ -336,7 +340,17 @@ async def handle_text_message(update: Update, context: ContextTypes.DEFAULT_TYPE
     # 2. Handle UID submission after deposit
     if current_state == BotStates.DEPOSIT_YES:
         submitted_uid = update.message.text.strip()
-        telegram_username = update.effective_user.username or "(no username)"
+        telegram_username = update.effective_user.username
+        if not telegram_username:
+            await context.bot.send_message(
+                chat_id=user_id,
+                text=(
+                    "❗ You must set a Telegram username before proceeding.\n"
+                    "Please go to Telegram Settings > Edit Profile > Username, set a username, then type /start to begin again."
+                )
+            )
+            return  # Do not proceed
+        # If username is set, continue as before
         combined_info = f"UID: {submitted_uid}\nTelegram: @{telegram_username}"
         db.update_user(user_id, uid_submission=combined_info)
         if ADMIN_IDS:

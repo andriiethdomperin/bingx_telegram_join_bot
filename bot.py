@@ -462,6 +462,13 @@ async def show_kyc_transfer_help(update: Update, context: ContextTypes.DEFAULT_T
     
 async def support_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
+    telegram_username = update.effective_user.username
+    if not telegram_username:
+        await update.message.reply_text(
+            "❗ You must set a Telegram username before requesting support.\n"
+            "Please go to Telegram Settings > Edit Profile > Username, set a username, then type /support again."
+        )
+        return
     db.set_user_state(user_id, BotStates.SUPPORT)
     await update.message.reply_text(
         "Please describe your issue or question. Our admin will contact you soon."

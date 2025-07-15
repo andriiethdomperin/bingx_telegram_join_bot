@@ -435,6 +435,7 @@ async def handle_back_button(update: Update, context: ContextTypes.DEFAULT_TYPE)
     # Add more as needed for other steps
 
 async def ask_referral_registration(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Step 2: Ask if user registered with the referral link"""
     keyboard = [
         [
             InlineKeyboardButton("✅ Yes", callback_data="referral_yes"),
@@ -442,9 +443,6 @@ async def ask_referral_registration(update: Update, context: ContextTypes.DEFAUL
         ],
         [
             InlineKeyboardButton("🟡 I already have a BingX account", callback_data="referral_existing")
-        ],
-        [
-            InlineKeyboardButton("🐋 I am a whale (VIP)", callback_data="referral_whale")
         ]
     ]
     reply_markup = InlineKeyboardMarkup(keyboard)

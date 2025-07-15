@@ -317,6 +317,23 @@ async def ask_uid_submission(update: Update, context: ContextTypes.DEFAULT_TYPE)
 )
 
 async def handle_text_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if current_state == BotStates.WHALE_INFO:
+        whale_info = update.message.text.strip()
+        for admin_id in ADMIN_IDS:
+            try:
+                await context.bot.send_message(
+                    chat_id=admin_id,
+                    text=f"🐋 Whale VIP Application from user {user_id} (@{update.effective_user.username or 'no username'}):\n{whale_info}"
+                )
+            except Exception as e:
+                logger.error(f"Failed to send whale info to admin {admin_id}: {e}")
+        await context.bot.send_message(
+            chat_id=user_id,
+            text="✅ Forwarded to admin"
+        )
+        db.set_user_state(user_id, "COMPLETED")
+        return
+
     admin_id = update.effective_user.id
     if admin_id in ADMIN_IDS and admin_id in admin_reply_state:
         state = admin_reply_state[admin_id]
@@ -435,7 +452,6 @@ async def handle_back_button(update: Update, context: ContextTypes.DEFAULT_TYPE)
     # Add more as needed for other steps
 
 async def ask_referral_registration(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Step 2: Ask if user registered with the referral link"""
     keyboard = [
         [
             InlineKeyboardButton("✅ Yes", callback_data="referral_yes"),
@@ -443,6 +459,9 @@ async def ask_referral_registration(update: Update, context: ContextTypes.DEFAUL
         ],
         [
             InlineKeyboardButton("🟡 I already have a BingX account", callback_data="referral_existing")
+        ],
+        [
+            InlineKeyboardButton("🐋 I am a whale (VIP)", callback_data="referral_whale")
         ]
     ]
     reply_markup = InlineKeyboardMarkup(keyboard)
@@ -458,6 +477,22 @@ async def handle_referral_registration(update: Update, context: ContextTypes.DEF
     await query.answer()
     user_id = query.from_user.id
     response = query.data
+    
+    if response == "referral_whale":
+        db.set_user_state(user_id, BotStates.WHALE_ASK)
+        keyboard = [
+            [
+                InlineKeyboardButton("Yes", callback_data="whale_yes"),
+                InlineKeyboardButton("No", callback_data="whale_no")
+            ]
+        ]
+        reply_markup = InlineKeyboardMarkup(keyboard)
+        await context.bot.send_message(
+            chat_id=user_id,
+            text="Welcome! Are you a whale?",
+            reply_markup=reply_markup
+        )
+        return
 
     if response == "referral_yes":
         # Go to Step 4 (KYC completion)
@@ -470,6 +505,44 @@ async def handle_referral_registration(update: Update, context: ContextTypes.DEF
     elif response == "referral_existing":
         # Go to Step 3 (KYC transfer help)
         await show_kyc_transfer_help(update, context)
+        
+async def handle_whale_flow(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    user_id = query.from_user.id
+    response = query.data
+
+    if response == "whale_yes":
+        db.set_user_state(user_id, BotStates.WHALE_INFO)
+        # Show campaign image (add img/vip_campaign.png to your project)
+        await context.bot.send_photo(
+            chat_id=user_id,
+            photo=open('img/vip.png', 'rb')
+        )
+        await context.bot.send_message(
+            chat_id=user_id,
+            text=(
+                "🔥 BingX VIP Campaign – Switch & Earn BIG 🔥\n\n"
+                "Already a VIP on another exchange? Time to get more.\n\n"
+                "💎 Start directly at VIP+2\n"
+                "💰 Up to 1,000 USDT Trial Fund – Trade risk-free, keep the profits\n"
+                "🎯 Up to 8,000 USDT Cash Rewards – Just maintain your volume\n"
+                "💸 Up to 25% Trading Fee Rebate, paid daily\n"
+                "⚙️ Copy Trading, Bots, Grid & more\n"
+                "🥂 VIP perks: Fast support, low fees, private events\n\n"
+                "Get everything you have — and more — at BingX.\n"
+                "👉 Apply now and upgrade instantly"
+            )
+        )
+        await context.bot.send_message(
+            chat_id=user_id,
+            text="Which exchange do you trade on? Which one are you VIP at? Or how much is your balance?"
+        )
+        return
+    elif response == "whale_no":
+        # Return to referral registration
+        await ask_referral_registration(update, context)
+        return
 
 async def show_kyc_transfer_help(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Step 3: Show KYC transfer help and then proceed to KYC completion question"""
@@ -541,6 +614,7 @@ def main():
     application.add_handler(CommandHandler("support", support_command))
     application.add_handler(CommandHandler("help", help_command))
     application.add_handler(CommandHandler("reply", reply_command))
+    application.add_handler(CallbackQueryHandler(handle_whale_flow, pattern="^whale_"))
     
     # Add error handler
     application.add_error_handler(error_handler)

@@ -14,6 +14,8 @@ logger = logging.getLogger(__name__)
 # Initialize database
 db = UserDatabase()
 
+admin_reply_state = {}  # key: admin_id, value: {'step': 1/2, 'user_id': ...}
+
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Handle /start command or back to start/kyc from callback"""
     user = update.effective_user
@@ -315,6 +317,33 @@ async def ask_uid_submission(update: Update, context: ContextTypes.DEFAULT_TYPE)
 )
 
 async def handle_text_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    admin_id = update.effective_user.id
+    if admin_id in ADMIN_IDS and admin_id in admin_reply_state:
+        state = admin_reply_state[admin_id]
+        if state['step'] == 1:
+            # Admin just entered user ID
+            user_id = update.message.text.strip()
+            if not user_id.isdigit():
+                await update.message.reply_text("Invalid user ID. Please enter a numeric Telegram user ID.")
+                return
+            admin_reply_state[admin_id] = {'step': 2, 'user_id': user_id}
+            await update.message.reply_text("Please enter the content you want to send.")
+            return
+        elif state['step'] == 2:
+            # Admin just entered the message content
+            user_id = admin_reply_state[admin_id]['user_id']
+            content = update.message.text.strip()
+            try:
+                await context.bot.send_message(
+                    chat_id=int(user_id),
+                    text=f"💬 Admin reply:\n{content}"
+                )
+                await update.message.reply_text("✅ Your reply has been sent to the user.")
+            except Exception as e:
+                await update.message.reply_text(f"Failed to send message: {e}")
+            del admin_reply_state[admin_id]
+            return
+        
     """Handle text messages: collect UID, support requests, or restart flow."""
     user_id = update.effective_user.id
     user_data = db.get_user(user_id)
@@ -481,6 +510,14 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         # Add more commands as needed
     )
     await update.message.reply_text(help_text)
+    
+async def reply_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    admin_id = update.effective_user.id
+    if admin_id not in ADMIN_IDS:
+        await update.message.reply_text("❌ You are not authorized to use this command.")
+        return
+    admin_reply_state[admin_id] = {'step': 1}
+    await update.message.reply_text("Please enter the Telegram user ID you want to reply to.")
 
 def main():
     """Start the bot"""
@@ -503,6 +540,7 @@ def main():
     application.add_handler(CallbackQueryHandler(handle_referral_registration, pattern="^referral_"))
     application.add_handler(CommandHandler("support", support_command))
     application.add_handler(CommandHandler("help", help_command))
+    application.add_handler(CommandHandler("reply", reply_command))
     
     # Add error handler
     application.add_error_handler(error_handler)

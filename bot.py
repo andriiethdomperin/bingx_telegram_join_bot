@@ -318,7 +318,12 @@ async def ask_uid_submission(update: Update, context: ContextTypes.DEFAULT_TYPE)
 )
 
 async def handle_text_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Handle text messages: collect UID, support requests, or restart flow."""
     admin_id = update.effective_user.id
+    user_id = update.effective_user.id
+    user_data = db.get_user(user_id)
+    current_state = user_data.get('state', BotStates.GREETING)
+    
     if user_data.get('state') == "VIP_AWAITING_DETAILS":
         answer = update.message.text.strip()
         telegram_username = update.effective_user.username or "(no username)"
@@ -360,11 +365,6 @@ async def handle_text_message(update: Update, context: ContextTypes.DEFAULT_TYPE
             del admin_reply_state[admin_id]
             return
         
-    """Handle text messages: collect UID, support requests, or restart flow."""
-    user_id = update.effective_user.id
-    user_data = db.get_user(user_id)
-    current_state = user_data.get('state', BotStates.GREETING)
-
     # 1. Handle support requests
     if current_state == BotStates.SUPPORT:
         issue_text = update.message.text.strip()
@@ -490,8 +490,8 @@ async def handle_referral_registration(update: Update, context: ContextTypes.DEF
 async def ask_vip_campaign(update: Update, context: ContextTypes.DEFAULT_TYPE):
     keyboard = [
         [
-            InlineKeyboardButton("✅ Yes, I’m interested", callback_data="vip_yes"),
-            InlineKeyboardButton("❌ No, I’m not interested", callback_data="vip_no")
+            InlineKeyboardButton("✅ Yes, I’m interested", callback_data="vip_step1_yes"),
+            InlineKeyboardButton("❌ No, I’m not interested", callback_data="vip_step1_no")
         ]
     ]
     reply_markup = InlineKeyboardMarkup(keyboard)
@@ -502,6 +502,9 @@ async def ask_vip_campaign(update: Update, context: ContextTypes.DEFAULT_TYPE):
     )
     
 async def show_vip_campaign_details(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()  # Always answer callback queries first!
+    
     keyboard = [
         [
             InlineKeyboardButton("✅ Yes, I’m interested", callback_data="vip_step2_yes"),

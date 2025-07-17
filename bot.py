@@ -32,8 +32,9 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     elif update.callback_query:
         await update.callback_query.message.reply_text(welcome_text)
 
-    # Ask KYC question
+    # Show both components
     await ask_referral_registration(update, context)
+    await ask_vip_campaign(update, context)
 
 async def ask_kyc_question(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Ask if user has KYC-verified account"""
@@ -318,6 +319,21 @@ async def ask_uid_submission(update: Update, context: ContextTypes.DEFAULT_TYPE)
 
 async def handle_text_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     admin_id = update.effective_user.id
+    if user_data.get('state') == "VIP_AWAITING_DETAILS":
+        answer = update.message.text.strip()
+        telegram_username = update.effective_user.username or "(no username)"
+        for admin_id in ADMIN_IDS:
+            await context.bot.send_message(
+                chat_id=admin_id,
+                text=f"VIP Campaign Application from @{telegram_username} (ID: {user_id}):\n{answer}"
+            )
+        await context.bot.send_message(
+            chat_id=user_id,
+            text="Your message has been forwarded to the admin."
+        )
+        db.set_user_state(user_id, "COMPLETED")
+        return
+    
     if admin_id in ADMIN_IDS and admin_id in admin_reply_state:
         state = admin_reply_state[admin_id]
         if state['step'] == 1:
@@ -470,6 +486,84 @@ async def handle_referral_registration(update: Update, context: ContextTypes.DEF
     elif response == "referral_existing":
         # Go to Step 3 (KYC transfer help)
         await show_kyc_transfer_help(update, context)
+        
+async def ask_vip_campaign(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    keyboard = [
+        [
+            InlineKeyboardButton("✅ Yes, I’m interested", callback_data="vip_yes"),
+            InlineKeyboardButton("❌ No, I’m not interested", callback_data="vip_no")
+        ]
+    ]
+    reply_markup = InlineKeyboardMarkup(keyboard)
+    await context.bot.send_message(
+        chat_id=update.effective_user.id,
+        text="Are you a VIP on another exchange or is your balance over $50,000?",
+        reply_markup=reply_markup
+    )
+    
+async def show_vip_campaign_details(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    keyboard = [
+        [
+            InlineKeyboardButton("✅ Yes, I’m interested", callback_data="vip_step2_yes"),
+            InlineKeyboardButton("❌ No, I’m not interested", callback_data="vip_step2_no")
+        ]
+    ]
+    reply_markup = InlineKeyboardMarkup(keyboard)
+    vip_message = (
+        "🔥 BingX VIP Campaign – Switch & Earn BIG 🔥\n\n"
+        "Already a VIP on another exchange? Time to get more.\n\n"
+        "💎 Start directly at VIP+2\n"
+        "💰 Up to 1,000 USDT Trial Fund – Trade risk-free, keep the profits\n"
+        "🎯 Up to 8,000 USDT Cash Rewards – Just maintain your volume\n"
+        "💸 Up to 25% Trading Fee Rebate, paid daily\n"
+        "⚙️ Copy Trading, Bots, Grid & more\n"
+        "🥂 VIP perks: Fast support, low fees, private events\n\n"
+        "Get everything you have — and more — at BingX.\n"
+        "👉 Apply now and upgrade instantly"
+    )
+    
+    # Send the image first (or after, if you prefer)
+    with open('img/whale.png', 'rb') as photo:
+        await context.bot.send_photo(
+            chat_id=update.effective_user.id,
+            photo=photo
+        )
+        
+    await context.bot.send_message(
+        chat_id=update.effective_user.id,
+        text=vip_message,
+        reply_markup=reply_markup
+    )
+    
+async def ask_vip_exchange_details(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = update.effective_user.id
+    db.set_user_state(user_id, "VIP_AWAITING_DETAILS")
+    await context.bot.send_message(
+        chat_id=user_id,
+        text="Which exchange do you trade on? Which one are you VIP at? Or how much is your balance?\n(Please answer below.)"
+    )
+    
+
+async def handle_vip_campaign(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    user_id = query.from_user.id
+    data = query.data
+
+    if data == "vip_step1_yes":
+        await show_vip_campaign_details(update, context)
+    elif data == "vip_step1_no":
+        await context.bot.send_message(
+            chat_id=user_id,
+            text="No problem! You can continue with the regular onboarding process."
+        )
+    elif data == "vip_step2_yes":
+        await ask_vip_exchange_details(update, context)
+    elif data == "vip_step2_no":
+        await context.bot.send_message(
+            chat_id=user_id,
+            text="No problem! You can continue with the regular onboarding process."
+        )
 
 async def show_kyc_transfer_help(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Step 3: Show KYC transfer help and then proceed to KYC completion question"""
@@ -530,6 +624,7 @@ def main():
     
     # Add handlers
     application.add_handler(CommandHandler("start", start))
+    application.add_handler(CallbackQueryHandler(handle_vip_campaign, pattern="^vip_"))
     application.add_handler(CallbackQueryHandler(handle_kyc_transfer_response, pattern="^kyc_transfer_"))
     application.add_handler(CallbackQueryHandler(handle_kyc_completion_response, pattern="^kyc_complete_"))
     application.add_handler(CallbackQueryHandler(handle_kyc_response, pattern="^kyc_"))
@@ -541,6 +636,7 @@ def main():
     application.add_handler(CommandHandler("support", support_command))
     application.add_handler(CommandHandler("help", help_command))
     application.add_handler(CommandHandler("reply", reply_command))
+    application.add_handler(CallbackQueryHandler(handle_vip_campaign, pattern="^vip_step"))
     
     # Add error handler
     application.add_error_handler(error_handler)

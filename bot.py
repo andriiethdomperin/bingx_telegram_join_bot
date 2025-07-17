@@ -624,7 +624,7 @@ def main():
     
     # Add handlers
     application.add_handler(CommandHandler("start", start))
-    application.add_handler(CallbackQueryHandler(handle_vip_campaign, pattern="^vip_"))
+    application.add_handler(CallbackQueryHandler(handle_vip_campaign, pattern="^vip_step"))
     application.add_handler(CallbackQueryHandler(handle_kyc_transfer_response, pattern="^kyc_transfer_"))
     application.add_handler(CallbackQueryHandler(handle_kyc_completion_response, pattern="^kyc_complete_"))
     application.add_handler(CallbackQueryHandler(handle_kyc_response, pattern="^kyc_"))
@@ -636,7 +636,6 @@ def main():
     application.add_handler(CommandHandler("support", support_command))
     application.add_handler(CommandHandler("help", help_command))
     application.add_handler(CommandHandler("reply", reply_command))
-    application.add_handler(CallbackQueryHandler(handle_vip_campaign, pattern="^vip_step"))
     
     # Add error handler
     application.add_error_handler(error_handler)

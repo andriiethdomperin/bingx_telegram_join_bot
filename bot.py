@@ -24,6 +24,13 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     # Store user info
     db.set_user_info(user_id, username=user.username, name=user.first_name)
     db.set_user_state(user_id, BotStates.GREETING)
+    
+    #Send image
+    with open('img/welcome.png', 'rb') as photo:
+        await context.bot.send_photo(
+            chat_id=update.effective_user.id,
+            photo=photo
+        )
 
     # Send welcome message
     welcome_text = MESSAGES['welcome'].format(BINGX_REFERRAL_LINK=BINGX_REFERRAL_LINK)
